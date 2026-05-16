@@ -26,6 +26,7 @@ class SocialPlatformResult(BaseModel):
 class SocialResponse(BaseModel):
     results: list[SocialPlatformResult]
     imageUrl: Optional[str] = None      # base64 data URL or None
+    tokensUsed: int = 0
 
 
 # ── Copywriter ───────────────────────────────────────────────────────────────
@@ -48,6 +49,7 @@ class CopyVariant(BaseModel):
 
 class CopyResponse(BaseModel):
     variants: list[CopyVariant]
+    tokensUsed: int = 0
 
 
 # ── Banner ───────────────────────────────────────────────────────────────────
@@ -65,6 +67,7 @@ class BannerRequest(BaseModel):
 class BannerResponse(BaseModel):
     imageUrl: Optional[str] = None      # base64 data URL or None
     enhancedPrompt: str
+    tokensUsed: int = 0
 
 
 # ── Image Gen ────────────────────────────────────────────────────────────────
@@ -79,3 +82,4 @@ class ImageGenRequest(BaseModel):
 class ImageGenResponse(BaseModel):
     imageUrl: Optional[str] = None      # base64 data URL or None
     enhancedPrompt: str
+    tokensUsed: int = 0

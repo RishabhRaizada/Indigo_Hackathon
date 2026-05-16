@@ -47,13 +47,15 @@ def _parse_json_block(text: str) -> dict:
     return json.loads(text.strip())
 
 
-async def _chat(messages: list[dict]) -> str:
-    """Single call to the reasoning model — no temperature, no token cap."""
+async def _chat(messages: list[dict]) -> tuple[str, int]:
+    """Single call to the reasoning model — returns (content, total_tokens_used)."""
     response = await _client.chat.completions.create(
         model=AZURE_DEPLOYMENT,
         messages=messages,
     )
-    return (response.choices[0].message.content or "").strip()
+    content = (response.choices[0].message.content or "").strip()
+    tokens = response.usage.total_tokens if response.usage else 0
+    return content, tokens
 
 
 async def generate_social_content(
@@ -66,9 +68,9 @@ async def generate_social_content(
     cta_style: str,
     language: str,
 ) -> dict:
-    """Return { content, hashtags } for a single platform."""
+    """Return { content, hashtags, tokens } for a single platform."""
     rules = _PLATFORM_RULES.get(platform, "engaging, clear CTA")
-    raw = await _chat([
+    raw, tokens = await _chat([
         {
             "role": "user",
             "content": (
@@ -87,9 +89,11 @@ async def generate_social_content(
         }
     ])
     try:
-        return _parse_json_block(raw)
+        parsed = _parse_json_block(raw)
+        parsed["tokens"] = tokens
+        return parsed
     except Exception:
-        return {"content": raw, "hashtags": []}
+        return {"content": raw, "hashtags": [], "tokens": tokens}
 
 
 async def generate_social_all_platforms(
@@ -101,20 +105,22 @@ async def generate_social_all_platforms(
     hashtag_count: int,
     cta_style: str,
     language: str,
-) -> list[dict]:
-    """Generate content for all platforms in parallel."""
+) -> tuple[list[dict], int]:
+    """Generate content for all platforms in parallel. Returns (results, total_tokens)."""
     tasks = [
         generate_social_content(p, campaign_type, prompt, tone, audience, hashtag_count, cta_style, language)
         for p in platforms
     ]
     results = await asyncio.gather(*tasks, return_exceptions=True)
     out = []
+    total_tokens = 0
     for platform, result in zip(platforms, results):
         if isinstance(result, Exception):
             out.append({"platform": platform, "content": f"Generation failed: {result}", "hashtags": []})
         else:
+            total_tokens += result.pop("tokens", 0)
             out.append({"platform": platform, **result})
-    return out
+    return out, total_tokens
 
 
 async def generate_copy_variants(
@@ -125,8 +131,8 @@ async def generate_copy_variants(
     seo_keywords: str,
     audience: str,
     language: str,
-) -> list[dict]:
-    """Return [{ label, content }] with Short / Medium / Long variants."""
+) -> tuple[list[dict], int]:
+    """Return ([{ label, content }], tokens) with Short / Medium / Long variants."""
     channel_note = {
         "email": "email body copy — include a subject line on the first line prefixed 'Subject:', blank line, then body",
         "landing": "landing page hero section — headline + subtext + CTA label",
@@ -134,7 +140,7 @@ async def generate_copy_variants(
         "push": "push notification — under 60 characters, urgency-driven",
     }.get(channel, channel)
 
-    raw = await _chat([
+    raw, tokens = await _chat([
         {
             "role": "user",
             "content": (
@@ -158,13 +164,13 @@ async def generate_copy_variants(
             {"label": "Short", "content": parsed.get("short", "")},
             {"label": "Medium", "content": parsed.get("medium", "")},
             {"label": "Long", "content": parsed.get("long", "")},
-        ]
+        ], tokens
     except Exception:
-        return [{"label": "Variant 1", "content": raw}]
+        return [{"label": "Variant 1", "content": raw}], tokens
 
 
-async def enhance_image_prompt(description: str, style: str) -> str:
-    """Expand a brief description into a detailed visual prompt for image generation."""
+async def enhance_image_prompt(description: str, style: str) -> tuple[str, int]:
+    """Expand a brief description into a detailed visual prompt. Returns (prompt, tokens)."""
     style_directive = _STYLE_DIRECTIVES.get(style.lower(), style)
     return await _chat([
         {

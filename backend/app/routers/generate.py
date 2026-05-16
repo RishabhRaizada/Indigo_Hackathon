@@ -25,7 +25,7 @@ async def generate_social(req: SocialRequest):
         raise HTTPException(status_code=400, detail="At least one platform is required")
 
     # Generate text for all platforms in parallel
-    platform_results = await openai_service.generate_social_all_platforms(
+    platform_results, text_tokens = await openai_service.generate_social_all_platforms(
         platforms=req.platforms,
         campaign_type=req.campaignType,
         prompt=req.prompt,
@@ -38,8 +38,9 @@ async def generate_social(req: SocialRequest):
 
     # Generate image from the prompt
     image_url = None
+    image_tokens = 0
     try:
-        enhanced = await openai_service.enhance_image_prompt(req.prompt, "photoreal")
+        enhanced, image_tokens = await openai_service.enhance_image_prompt(req.prompt, "photoreal")
         image_url = await gemini_service.generate_image(enhanced, "1:1")
     except Exception as e:
         print(f"[Social] Image generation skipped: {e}")
@@ -53,7 +54,7 @@ async def generate_social(req: SocialRequest):
         for r in platform_results
     ]
 
-    return SocialResponse(results=results, imageUrl=image_url)
+    return SocialResponse(results=results, imageUrl=image_url, tokensUsed=text_tokens + image_tokens)
 
 
 # ── Copywriter ────────────────────────────────────────────────────────────────
@@ -63,7 +64,7 @@ async def generate_copy(req: CopyRequest):
     if not req.brief.strip():
         raise HTTPException(status_code=400, detail="Brief is required")
 
-    variants_raw = await openai_service.generate_copy_variants(
+    variants_raw, tokens = await openai_service.generate_copy_variants(
         channel=req.channel,
         brief=req.brief,
         tone=req.tone,
@@ -74,7 +75,8 @@ async def generate_copy(req: CopyRequest):
     )
 
     return CopyResponse(
-        variants=[CopyVariant(label=v["label"], content=v["content"]) for v in variants_raw]
+        variants=[CopyVariant(label=v["label"], content=v["content"]) for v in variants_raw],
+        tokensUsed=tokens,
     )
 
 
@@ -86,7 +88,7 @@ async def generate_banner(req: BannerRequest):
         raise HTTPException(status_code=400, detail="Description is required")
 
     # Enhance prompt first, then generate image
-    enhanced = await openai_service.enhance_image_prompt(req.description, req.style)
+    enhanced, tokens = await openai_service.enhance_image_prompt(req.description, req.style)
 
     # Map resolution to size hint for prompt
     res_hint = {"sd": "standard definition", "hd": "high resolution", "4k": "ultra-high resolution 4K"}.get(
@@ -96,7 +98,7 @@ async def generate_banner(req: BannerRequest):
 
     image_url = await gemini_service.generate_image(full_prompt, req.aspectRatio)
 
-    return BannerResponse(imageUrl=image_url, enhancedPrompt=enhanced)
+    return BannerResponse(imageUrl=image_url, enhancedPrompt=enhanced, tokensUsed=tokens)
 
 
 # ── Image Gen ─────────────────────────────────────────────────────────────────
@@ -106,7 +108,7 @@ async def generate_image(req: ImageGenRequest):
     if not req.prompt.strip():
         raise HTTPException(status_code=400, detail="Prompt is required")
 
-    enhanced = await openai_service.enhance_image_prompt(req.prompt, req.style)
+    enhanced, tokens = await openai_service.enhance_image_prompt(req.prompt, req.style)
     image_url = await gemini_service.generate_image(enhanced, "1:1")
 
-    return ImageGenResponse(imageUrl=image_url, enhancedPrompt=enhanced)
+    return ImageGenResponse(imageUrl=image_url, enhancedPrompt=enhanced, tokensUsed=tokens)
